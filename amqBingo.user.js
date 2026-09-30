@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMQ Bingo
 // @namespace    http://tampermonkey.net/
-// @version      0.37
+// @version      0.39
 // @description  Bingo boards that mark themselves as you play. Alt+G: your board. Alt+H: host panel.
 // @match        https://animemusicquiz.com/*
 // @grant        GM_xmlhttpRequest
@@ -14,7 +14,7 @@
 
 (() => {
 "use strict";
-const SCRIPT_VERSION = "0.37";
+const SCRIPT_VERSION = "0.39";
 const INSTALL_URL = "https://raw.githubusercontent.com/micr-nex/AMQ-Bingo/main/amqBingo.user.js";
 /* ---------- shared with the website (same tiles, boards and codes) ---------- */
 const COLS = [
@@ -831,10 +831,55 @@ function linesOf(b) {
 // In a solo game the board gets a clock: it starts with the first song and stops at your first bingo.
 const isSolo = () => Object.keys(game.players).length === 1;
 const fmtTime = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
-const speedKey = () => SET_NAMES[SETTINGS.set || "S"] + (SETTINGS.wild === false ? " (no wild)" : "");
+// Official speedrun rules: fixed bingo settings plus fixed room settings, so times compare between
+// runs and between people. Only the song selection varies: Random or Watched.
+const SPEEDRUN_TILES = { set: "S", manual: false, hardCap: 1, replace: false, auto: true, needCorrect: false, onePerSong: false, wild: false, lockAuto: true, soloMix: true };
+const SPEEDRUN_GAME = { rounds: 1, endMode: "bingo", autoNext: false, autoLobby: true, nextBoard: "new" };
+function speedrunRoom(cat) {
+  return {
+    numberOfSongs: 100,
+    songSelection: cat === "random" ? { standardValue: 1, advancedValue: { watched: 0, unwatched: 0, random: 100 } } : { standardValue: 3, advancedValue: { watched: 100, unwatched: 0, random: 0 } },
+    songType: { standardValue: { openings: true, endings: true, inserts: true }, advancedValue: { openings: 0, endings: 0, inserts: 0, random: 100 } },
+    openingCategories: { instrumental: true, chanting: true, character: true, standard: true },
+    endingCategories: { instrumental: true, chanting: true, character: true, standard: true },
+    insertCategories: { instrumental: true, chanting: true, character: true, standard: true },
+    guessTime: { randomOn: false, standardValue: 20, randomValue: [1, 60] },
+    extraGuessTime: { randomOn: false, standardValue: 0, randomValue: [0, 15] },
+    songDifficulity: { advancedOn: true, standardValue: { beginner: true, easy: true, medium: true, hard: true, expert: true }, advancedValue: [0, 100] },
+    songPopularity: { advancedOn: true, standardValue: { disliked: true, mixed: true, liked: true }, advancedValue: [0, 100] },
+    playbackSpeed: { randomOn: false, standardValue: 1, randomValue: [true, true, true, true] },
+    scoreType: 1,
+    guessMode: { song: true, tinyVideo: false, blurVideo: false },
+  };
+}
+// The room's current settings (lobby, or the snapshot we got when joining/hosting).
+function roomSettingsNow() {
+  try { if (PAGE.lobby && PAGE.lobby.settings && PAGE.lobby.settings.songSelection) return PAGE.lobby.settings; } catch (e) {}
+  return game.roomSettings || null;
+}
+// Which leaderboard a run belongs to. "Speedrun · Random/Watched" only when every rule matches.
+function speedCategory() {
+  const st = roomSettingsNow(), sel = st && st.songSelection && st.songSelection.standardValue;
+  const cat = sel === 1 ? "Random" : sel === 3 ? "Watched" : "Mixed", why = [];
+  if (!Object.keys(SPEEDRUN_TILES).every((k) => SETTINGS[k] === SPEEDRUN_TILES[k])) why.push("bingo settings");
+  if (!st) why.push("room settings unknown");
+  else {
+    const want = speedrunRoom(cat === "Random" ? "random" : "watched");
+    const same = (k) => JSON.stringify(st[k]) === JSON.stringify(want[k]);
+    if (cat === "Mixed") why.push("song selection");
+    if (!(st.guessTime && !st.guessTime.randomOn && st.guessTime.standardValue === 20) || !(st.extraGuessTime && st.extraGuessTime.standardValue === 0)) why.push("guess time");
+    if (!same("songType") || !same("openingCategories") || !same("endingCategories") || !same("insertCategories")) why.push("song types");
+    const d = st.songDifficulity; if (!(d && ((d.advancedOn && d.advancedValue[0] === 0 && d.advancedValue[1] === 100) || (!d.advancedOn && Object.values(d.standardValue).every(Boolean))))) why.push("difficulty");
+    if (!(st.playbackSpeed && !st.playbackSpeed.randomOn && st.playbackSpeed.standardValue === 1)) why.push("playback speed");
+  }
+  return { key: why.length ? `Custom · ${cat}` : `Speedrun · ${cat}`, official: !why.length, why };
+}
+const speedKey = () => { const b = curBoard(); return (b && b.speed && b.speed.key) || speedCategory().key; };
 function speedStart() {
   const b = curBoard(); if (!b || b.speed || !isSolo() || linesOf(b).length) return;
-  b.speed = { start: Date.now(), seq0: game.seq || 0 }; saveP();
+  const c = speedCategory();
+  b.speed = { start: Date.now(), seq0: game.seq || 0, key: c.key, why: c.why }; saveP();
+  if (!c.official) sysMsg(`AMQ Bingo speedrun: this run counts as "${c.key}" (differs from the speedrun rules: ${c.why.join(", ")}). Use Speedrun: Random or Watched in the host Settings for an official run.`);
 }
 function speedCheck(b, lines) {
   if (!b.speed || b.speed.end || !lines) return;
@@ -1043,7 +1088,7 @@ function renderPlayer() {
   const pbNow = P.pb && P.pb[speedKey()];
   const speedEl = b.speed ? h("div", { id: "amqbSpeed", class: "amqb-speed" + (b.speed.end ? " done" : "") },
     b.speed.end ? `🏁 Bingo in ${fmtTime(b.speed.end - b.speed.start)} · ${b.speed.songs} songs` + (b.speed.best ? " · new best!" : "") : `⏱ ${fmtTime(Date.now() - b.speed.start)} · ${(game.seq || 0) - b.speed.seq0} songs`,
-    h("span", { class: "amqb-muted" }, pbNow ? ` Best (${speedKey()}): ${fmtTime(pbNow.ms)}, ${pbNow.songs} songs` : " Solo speedrun: first bingo stops the clock")) : "";
+    h("span", { class: "amqb-muted", title: b.speed.why && b.speed.why.length ? "Not official: " + b.speed.why.join(", ") : "Official speedrun rules" }, ` ${speedKey()}` + (pbNow ? ` · best ${fmtTime(pbNow.ms)}, ${pbNow.songs} songs` : " · first bingo stops the clock"))) : "";
   body.append(speedEl, grid, logEl, pickBox || "", note ? h("div", { class: "amqb-err" }, note) : "", rulesLine ? h("div", { class: "amqb-muted" }, "This round: " + rulesLine + ".") : "",
     h("div", { class: "amqb-row", style: "justify-content:space-between" },
       h("div", { class: "amqb-stats" }, h("span", {}, h("b", {}, lines.length), " bingos"), h("span", {}, h("b", {}, b.marks.length + (b.wildOn ? 1 : 0)), " tiles")),
@@ -1238,6 +1283,23 @@ function endRound(reason) {
 function startAmqGame() {
   try { PAGE.socket.sendCommand({ type: "lobby", command: "start game" }); } catch (e) { sysMsg("AMQ Bingo: couldn't start the game."); }
 }
+function applySpeedrun(cat) {
+  // bingo side
+  const e = hostSavePack({ mode: "add", text: "" }, { ...DEFAULT_SETTINGS, ...SPEEDRUN_TILES });
+  if (e) { sysMsg("AMQ Bingo: " + e); return; }
+  H.custom = { mode: "add", text: "" }; H.game = { ...H.game, ...SPEEDRUN_GAME }; H.round = 1; saveH();
+  // room side: only send what differs
+  const want = speedrunRoom(cat), cur = roomSettingsNow() || {}, changes = {};
+  Object.keys(want).forEach((k) => { if (JSON.stringify(cur[k]) !== JSON.stringify(want[k])) changes[k] = want[k]; });
+  if (Object.keys(changes).length) { try { PAGE.socket.sendCommand({ type: "lobby", command: "change game settings", data: { settingChanges: changes, communityMode: false } }); } catch (err) {} }
+  setTimeout(() => {
+    const c = speedCategory();
+    sysMsg(c.official ? `AMQ Bingo: speedrun (${cat === "random" ? "Random" : "Watched"}) is set. Press Announce & start game.`
+      : `AMQ Bingo: bingo settings are set, but the room still differs (${c.why.join(", ")}). Set it in AMQ's room settings: ${cat === "random" ? "Random" : "Only watched"} songs, 20s guess time, all song types and categories, full difficulty range, normal speed.`);
+    renderHost(); renderPlayer();
+  }, 1500);
+  renderHost(); renderPlayer();
+}
 function returnToLobby() {
   try {
     PAGE.socket.sendCommand({ type: "quiz", command: "start return lobby vote" });
@@ -1424,6 +1486,9 @@ function tabSettings(body) {
   const setTiles = (patch) => { const e = hostSavePack(H.custom || { mode: "add", text: "" }, { ...st, ...patch }); if (e) sysMsg("AMQ Bingo: " + e); renderPlayer(); renderHost(); };
   const row = (label, ctl, help) => h("div", { class: "amqb-setrow" }, h("div", {}, h("b", {}, label), help ? h("div", { class: "amqb-muted" }, help) : null), ctl);
   body.append(
+    h("b", { class: "amqb-sechead" }, "Speedrun (solo)"),
+    row("Official speedrun rules", h("div", { class: "amqb-row" }, h("button", { class: "amqb-btn", onclick: () => applySpeedrun("random") }, "Random songs"), h("button", { class: "amqb-btn", onclick: () => applySpeedrun("watched") }, "Watched songs")),
+      "Sets everything to the fixed speedrun rules so times compare: Standard tiles, auto tiles only (locked), no wild card, Mix column, round ends at the first bingo; room: 100 songs, 20s guess time, all song types, full difficulty. Only Random vs Watched differs."),
     h("b", { class: "amqb-sechead" }, "Rounds"),
     row("Number of rounds", sel([[1, "1 (no rounds)"], [2, "2"], [3, "3"], [4, "4"], [5, "5"]], g.rounds, (v) => setGame({ rounds: Number(v) })), "With 1, round buttons are hidden. The website supports up to 3."),
     row("A round ends", sel([["amq", "When the AMQ game ends"], ["bingo", "When someone gets a confirmed bingo"]], g.endMode, (v) => setGame({ endMode: v })), g.endMode === "bingo" ? "The round keeps going across AMQ games until a bingo is confirmed." : "Boards reset with each new AMQ game."),
@@ -1534,6 +1599,12 @@ function boot() {
   on("quiz player hint used", (p) => { (p.gamePlayerIds || []).forEach((id) => { const h = (game.hints = game.hints || {}); (h[id] = h[id] || []).push(p.hintId); }); });
   on("quiz name hint", (p) => { const t = String((p && p.hint) || "").split(/\s+/).filter(Boolean); if (t.length) game.nameHint = { id: myId(), shown: t.filter((x) => x !== "_").length / t.length }; });
   // Joining mid-game (spectate, late join) or a Jam restart: learn the players so per-player tracking works.
+  const keepRoom = (st) => { if (st && st.songSelection) game.roomSettings = st; };
+  on("Host Game", (p) => keepRoom(p && p.settings));
+  on("Join Game", (p) => keepRoom(p && p.settings));
+  // AMQ sends { changes: {...}, communityMode } (seen in a real log).
+  on("Room Settings Changed", (p) => { const ch = (p && p.changes) || p; if (ch) game.roomSettings = { ...(game.roomSettings || {}), ...ch }; renderPlayer(); });
+  on("Spectate Game", (p) => { keepRoom(p && p.settings); });
   on("Spectate Game", (p) => { const q = p && p.quizState; if (q && q.players) trackGameStart({ players: q.players }); });
   // Rejoining after a disconnect (or a page reload mid-game) sends "Join Game" with the current players.
   on("Join Game", (p) => { const q = p && p.quizState; if (q && q.players && !p.inLobby) trackGameStart({ players: q.players }); });
