@@ -1,22 +1,27 @@
 // ==UserScript==
 // @name         AMQ Bingo
 // @namespace    http://tampermonkey.net/
-// @version      0.33
+// @version      0.37
 // @description  Bingo boards that mark themselves as you play. Alt+G: your board. Alt+H: host panel.
 // @match        https://animemusicquiz.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      anisongdb.com
+// @updateURL    https://raw.githubusercontent.com/micr-nex/AMQ-Bingo/main/amqBingo.user.js
+// @downloadURL  https://raw.githubusercontent.com/micr-nex/AMQ-Bingo/main/amqBingo.user.js
+// @homepageURL  https://github.com/micr-nex/AMQ-Bingo
 // ==/UserScript==
 
 (() => {
 "use strict";
+const SCRIPT_VERSION = "0.37";
+const INSTALL_URL = "https://raw.githubusercontent.com/micr-nex/AMQ-Bingo/main/amqBingo.user.js";
 /* ---------- shared with the website (same tiles, boards and codes) ---------- */
 const COLS = [
   { key: "anime", name: "Anime", tiles: [
     "-Before 2010", "*Before 1990", "-Aired in the last 2 years", "-A sequel", "OVA/ONA/Special/Music", "Movie", "*Mix of Japanese and English", "Title is 7+ words long", "Anime from your list twice in a row", "*Same anime appears twice", "One genre", "*More than 5 genres", "Less than 4 tags", "-More than 15 tags", "*Song name is same as the anime title", "*Tautogram (3 or more words start with the same letter)", "-Title has \"no\" as a word (e.g. Shingeki no Kyojin)", "-Title is one word", "Title includes a character's name", "-Isekai anime", "3 or more Isekai anime in one round", "*Sports anime", "Mecha anime", "-Same franchise appears twice in a row", "Same year twice in a row"] },
   { key: "song", name: "Song", tiles: [
-    "English", "Non-Japanese or English title", "Acoustic", "*Sound effects", "Talking/Rapping", "*Male/Female duet (or more)", "*Instrumental", "-OP/ED number higher than 2", "*Karaoke/Live (bad sound quality on purpose)", "-Song title is one word", "Song title contains a number", "*Song title contains a color", "-Song name drop in audio", "*Song works for 3 or more titles (3+ accepted anime)", "-Three of a kind: 3 OPs, EDs, or Inserts in a row", "Song title has Love, Ai, Koi, or Suki", "-Song title is longer than the anime title", "Song title is ALL CAPS", "Song difficulty 80% or higher", "*Song difficulty 15% or lower", "\"ver.\", \"version\" or \"edit\" in the song title (e.g. TV ver., TV edit)"] },
+    "English", "Non-Japanese or English title", "Acoustic", "*Sound effects", "Talking/Rapping", "*Male/Female duet (or more)", "*Instrumental", "*Chanting", "-OP/ED number higher than 2", "*Karaoke/Live (bad sound quality on purpose)", "-Song title is one word", "Song title contains a number", "*Song title contains a color", "-Song name drop in audio", "*Song works for 3 or more titles (3+ accepted anime)", "-Three of a kind: 3 OPs, EDs, or Inserts in a row", "Song title has Love, Ai, Koi, or Suki", "-Song title is longer than the anime title", "Song title is ALL CAPS", "Song difficulty 80% or higher", "*Song difficulty 15% or lower", "\"ver.\", \"version\" or \"edit\" in the song title (e.g. TV ver., TV edit)"] },
   { key: "artist", name: "Artist", wild: true, tiles: [
     "-Cast-sung", "-Band/Group", "Artist name is ALL CAPS", "Artist contains a symbol", "*Same artist appears twice", "Non-English/Japanese artist name", "*Inactive artist (solo artists only)", "*Artist younger than you (solo artists only)", "*Right artist, wrong anime (your answer has a song by this artist)", "Weird capitalization (a capital in the middle of a word, like LiSA or nano.RIPE)", "-Collab: \"feat.\" or \"&\" in the artist name", "Idol group or unit (real or from an idol anime)", "*Artist is also the composer", "-Parentheses ( ) in the artist name", "*Artist name starts with \"The\"", "More than 3 artists credited", "-Artist name is one word"] },
   { key: "ind", name: "Individual", tiles: [
@@ -103,14 +108,14 @@ function codesFromKey(key) {
   return out;
 }
 
-const TILESETS = [[0,"E",1,"CS","Before 2010"],[0,"H",1,"SX","Before 1990"],[0,"E",1,"CS","Aired in the last 2 years"],[0,"E",1,"CS","A sequel"],[0,"M",1,"CSX","OVA/ONA/Special/Music"],[0,"M",1,"CSX","Movie"],[0,"H",0,"CSX","Mix of Japanese and English"],[0,"M",1,"SX","Title is 7+ words long"],[0,"M",1,"SX","Anime from your list twice in a row"],[0,"H",1,"CSX","Same anime appears twice"],[0,"M",1,"CSX","One genre"],[0,"H",1,"CSX","More than 5 genres"],[0,"M",1,"CSX","Less than 4 tags"],[0,"E",1,"CSX","More than 15 tags"],[0,"H",1,"SX","Song name is same as the anime title"],[0,"H",1,"SX","Tautogram (3 or more words start with the same letter)"],[0,"M",1,"C","Name hint revealed more than half of the title"],[0,"E",1,"CS","Title has \"no\" as a word (e.g. Shingeki no Kyojin)"],[0,"E",1,"CS","Title is one word"],[0,"M",0,"SX","Title includes a character's name"],[0,"E",1,"CS","Isekai anime"],[0,"M",1,"S","3 or more Isekai anime in one round"],[0,"H",1,"CSX","Sports anime"],[0,"M",1,"CSX","Mecha anime"],[1,"M",0,"SX","English"],[1,"M",0,"SX","Non-Japanese or English title"],[1,"M",0,"SX","Acoustic"],[1,"H",0,"SX","Sound effects"],[1,"M",0,"CSX","Talking/Rapping"],[1,"H",0,"SX","Male/Female duet (or more)"],[1,"H",0,"SX","Instrumental"],[1,"E",1,"CS","OP/ED number higher than 2"],[1,"H",0,"SX","Karaoke/Live (bad sound quality on purpose)"],[1,"E",1,"CS","Song title is one word"],[1,"M",1,"CSX","Song title contains a number"],[1,"H",1,"SX","Song title contains a color"],[1,"E",0,"CS","Song name drop in audio"],[1,"H",1,"SX","Song works for 3 or more titles (3+ accepted anime)"],[1,"E",1,"CS","Three of a kind: 3 OPs, EDs, or Inserts in a row"],[1,"M",1,"CSX","Song title has Love, Ai, Koi, or Suki"],[1,"E",1,"CS","Song title is longer than the anime title"],[1,"M",1,"CSX","Song title is ALL CAPS"],[1,"M",1,"CSX","Song difficulty 80% or higher"],[1,"H",1,"SX","Song difficulty 15% or lower"],[1,"M",1,"CSX","\"ver.\", \"version\" or \"edit\" in the song title (e.g. TV ver., TV edit)"],[2,"E",0,"CSX","Cast-sung"],[2,"E",0,"CSX","Band/Group"],[2,"M",1,"CSX","Artist name is ALL CAPS"],[2,"M",1,"CS","Artist contains a symbol"],[2,"H",1,"CSX","Same artist appears twice"],[2,"M",0,"CSX","Non-English/Japanese artist name"],[2,"H",0,"SX","Inactive artist (solo artists only)"],[2,"H",0,"SX","Artist younger than you (solo artists only)"],[2,"H",1,"SX","Right artist, wrong anime (your answer has a song by this artist)"],[2,"M",1,"SX","Weird capitalization (a capital in the middle of a word, like LiSA or nano.RIPE)"],[2,"E",1,"CS","Collab: \"feat.\" or \"&\" in the artist name"],[2,"M",0,"SX","Idol group or unit (real or from an idol anime)"],[2,"H",1,"SX","Artist is also the composer"],[2,"E",1,"CS","Parentheses ( ) in the artist name"],[2,"H",1,"CSX","Artist name starts with \"The\""],[3,"E",1,"CSX","Get 3 songs in a row"],[3,"M",1,"CSX","Get a solo"],[3,"M",1,"CSX","Get an anti-solo"],[3,"E",1,"CS","Snipe (get a song not on your list)"],[3,"M",0,"CSX","Name Drop"],[3,"H",0,"C","Multiple Choice hint gave 3 or more titles of the same series"],[3,"M",0,"C","Info hint was actually helpful"],[3,"M",1,"C","Reach 30 points (hint mode)"],[3,"M",1,"SX","Change your answer from another real title to the right one"],[3,"M",1,"CSX","Lock in slower than any of the other people who got it right"],[3,"E",1,"CS","Type within 5 seconds"],[3,"M",1,"C","Never use a hint but be in top 5"],[3,"M",1,"CSX","Stay in the top 3 for 3 songs in a row"],[3,"H",1,"SX","Surpass 3 players in one song"],[3,"E",0,"CS","Your avatar is unique from others"],[3,"E",1,"CS","Get the first song of the round right"],[3,"M",1,"CSX","Your wrong answer shares a word with the correct title"],[3,"M",1,"CSX","Right franchise, wrong season or movie"],[3,"E",1,"CS","Miss 3 songs in a row"],[4,"E",1,"CS","Everyone gets a song right"],[4,"E",1,"CS","No one gets a song right"],[4,"H",1,"SX","Both players next to you guess it right (if you're on the edge, 1)"],[4,"E",1,"CSX","Someone types an emoji in chat"],[4,"M",1,"CSX","The player in 1st place misses, you get it right"],[4,"M",1,"CSX","A song from only 1 person's list"],[4,"M",1,"CSX","A song from 5 or more people's list"],[4,"H",1,"SX","2 or more people share the same wrong answer"],[4,"M",1,"CSX","Last-place player gets it right"],[4,"M",1,"CSX","Half of the people get it right"],[4,"M",1,"C","Nobody uses a hint"],[4,"M",1,"C","More than 3 people use a hint"],[4,"E",1,"C","Somebody uses Song Info Hint"],[4,"M",1,"CSX","Someone else disconnects"],[0,"E",1,"C","Romance anime"],[0,"H",1,"CX","Mahou Shoujo anime"],[0,"H",1,"CX","Idol anime"],[0,"E",1,"CX","Anime score 8.0 or higher"],[0,"M",1,"CX","Anime score below 6.0"],[0,"H",1,"CX","Obscure anime (popularity rank above 3000)"],[0,"M",1,"C","Top 100 most popular anime"],[0,"H",1,"","Season 3 or later"],[0,"E",1,"C","Same season twice in a row (e.g. two Spring anime)"],[0,"M",1,"C","English and romaji titles are the same"],[1,"E",1,"C","Show has 3 or more insert songs"],[1,"M",1,"X","Song title has 5+ words"],[1,"E",1,"C","Song title has ! or ?"],[1,"H",1,"X","Song title includes the anime's title"],[2,"M",1,"SX","More than 3 artists credited"],[2,"E",1,"CS","Artist name is one word"],[3,"H",1,"SX","Get 5 songs in a row"],[3,"H",1,"X","Answer correctly in under 2 seconds"],[3,"H",1,"S","Answer correctly in under 3 seconds"],[3,"E",1,"CS","Get the last song of the round right"],[3,"M",1,"CX","Be in 1st place after any song"],[4,"M",1,"CX","Exactly 2 people get it right"],[4,"H",1,"SX","Everyone gives the same answer"],[4,"M",1,"SX","Tie for 1st place after song 10"],[4,"E",1,"CS","A song nobody has on their list"],[4,"M",1,"","Someone answers in under 2 seconds"],[0,"E",1,"CS","Same franchise appears twice in a row"],[0,"M",1,"CS","Same year twice in a row"],[1,"M",1,"X","Sample starts in the first 5 seconds of the song"],[3,"M",1,"S","Reach 10 points (no hints)"],[3,"H",1,"SX","Reach 15 points (no hints)"],[3,"M",1,"SX","Unique right answer (a title no other correct player used)"],[3,"H",1,"SX","Flex answer (right with a different show the song also counts for)"],[0,"M",1,"X","Before 2000"],[0,"H",1,"X","Aired this year"],[0,"H",1,"X","Season 4 or later"],[0,"H",1,"X","Anime title is one word of 4 letters or fewer"],[0,"H",1,"X","Title has \"no\" twice (e.g. Boku no Kokoro no Yabai Yatsu)"],[0,"H",1,"X","33 or more tags"],[0,"H",1,"X","Only 1 or 2 tags"],[0,"H",1,"X","Same anime appears 3 times"],[0,"H",1,"X","Same franchise appears 3 times in one round"],[0,"H",1,"X","5 or more Isekai anime in one round"],[1,"H",1,"X","Four of a kind: 4 OPs, EDs, or Inserts in a row"],[1,"H",1,"X","OP/ED number 5 or higher"],[1,"H",1,"X","Song title is one word of 3 letters or fewer"],[1,"H",1,"X","Song title has a number with 3+ digits (e.g. 100, 2024)"],[1,"H",1,"","Two love songs in a row (Love, Ai, Koi, Suki)"],[1,"H",1,"X","Song title twice as long as the anime title"],[1,"H",1,"X","Song title and artist both ALL CAPS"],[1,"H",1,"X","Song difficulty 10% or lower"],[2,"H",1,"X","Artist name has 2 or more different symbols"],[2,"H",1,"X","6 or more artists credited"],[2,"H",1,"X","Same artist twice in a row"],[2,"H",1,"","Parentheses ( ) in the artist name two songs in a row"],[3,"H",1,"X","Get 7 songs in a row"],[3,"M",1,"X","Snipe 3 songs in one round"],[3,"H",1,"X","Get the first 3 songs right"],[3,"H",1,"X","Miss 5 in a row, then get one right"],[3,"H",1,"X","Get 3 solos in one round"],[4,"H",1,"X","Everyone gets 3 songs in a row right"],[4,"H",1,"X","No one gets 2 songs in a row right"],[4,"M",1,"X","Last-place player gets a solo"]];
+const TILESETS = [[0,"E",1,"CS","Before 2010"],[0,"H",1,"SX","Before 1990"],[0,"E",1,"CS","Aired in the last 2 years"],[0,"E",1,"CS","A sequel"],[0,"M",1,"CSX","OVA/ONA/Special/Music"],[0,"M",1,"CSX","Movie"],[0,"H",0,"CSX","Mix of Japanese and English"],[0,"M",1,"SX","Title is 7+ words long"],[0,"M",1,"SX","Anime from your list twice in a row"],[0,"H",1,"CSX","Same anime appears twice"],[0,"M",1,"CSX","One genre"],[0,"H",1,"CSX","More than 5 genres"],[0,"M",1,"CSX","Less than 4 tags"],[0,"E",1,"CSX","More than 15 tags"],[0,"H",1,"SX","Song name is same as the anime title"],[0,"H",1,"SX","Tautogram (3 or more words start with the same letter)"],[0,"M",1,"C","Name hint revealed more than half of the title"],[0,"E",1,"CS","Title has \"no\" as a word (e.g. Shingeki no Kyojin)"],[0,"E",1,"CS","Title is one word"],[0,"M",0,"SX","Title includes a character's name"],[0,"E",1,"CS","Isekai anime"],[0,"M",1,"S","3 or more Isekai anime in one round"],[0,"H",1,"CSX","Sports anime"],[0,"M",1,"CSX","Mecha anime"],[1,"M",0,"SX","English"],[1,"M",0,"SX","Non-Japanese or English title"],[1,"M",0,"SX","Acoustic"],[1,"H",0,"SX","Sound effects"],[1,"M",0,"CSX","Talking/Rapping"],[1,"H",0,"SX","Male/Female duet (or more)"],[1,"H",1,"SX","Instrumental"],[1,"H",1,"SX","Chanting"],[1,"E",1,"CS","OP/ED number higher than 2"],[1,"H",0,"SX","Karaoke/Live (bad sound quality on purpose)"],[1,"E",1,"CS","Song title is one word"],[1,"M",1,"CSX","Song title contains a number"],[1,"H",1,"SX","Song title contains a color"],[1,"E",0,"CS","Song name drop in audio"],[1,"H",1,"SX","Song works for 3 or more titles (3+ accepted anime)"],[1,"E",1,"CS","Three of a kind: 3 OPs, EDs, or Inserts in a row"],[1,"M",1,"CSX","Song title has Love, Ai, Koi, or Suki"],[1,"E",1,"CS","Song title is longer than the anime title"],[1,"M",1,"CSX","Song title is ALL CAPS"],[1,"M",1,"CSX","Song difficulty 80% or higher"],[1,"H",1,"SX","Song difficulty 15% or lower"],[1,"M",1,"CSX","\"ver.\", \"version\" or \"edit\" in the song title (e.g. TV ver., TV edit)"],[2,"E",0,"CSX","Cast-sung"],[2,"E",0,"CSX","Band/Group"],[2,"M",1,"CSX","Artist name is ALL CAPS"],[2,"M",1,"CS","Artist contains a symbol"],[2,"H",1,"CSX","Same artist appears twice"],[2,"M",0,"CSX","Non-English/Japanese artist name"],[2,"H",0,"SX","Inactive artist (solo artists only)"],[2,"H",0,"SX","Artist younger than you (solo artists only)"],[2,"H",1,"SX","Right artist, wrong anime (your answer has a song by this artist)"],[2,"M",1,"SX","Weird capitalization (a capital in the middle of a word, like LiSA or nano.RIPE)"],[2,"E",1,"CS","Collab: \"feat.\" or \"&\" in the artist name"],[2,"M",0,"SX","Idol group or unit (real or from an idol anime)"],[2,"H",1,"SX","Artist is also the composer"],[2,"E",1,"CS","Parentheses ( ) in the artist name"],[2,"H",1,"CSX","Artist name starts with \"The\""],[3,"E",1,"CSX","Get 3 songs in a row"],[3,"M",1,"CSX","Get a solo"],[3,"M",1,"CSX","Get an anti-solo"],[3,"E",1,"CS","Snipe (get a song not on your list)"],[3,"M",0,"CSX","Name Drop"],[3,"H",0,"C","Multiple Choice hint gave 3 or more titles of the same series"],[3,"M",0,"C","Info hint was actually helpful"],[3,"M",1,"C","Reach 30 points (hint mode)"],[3,"M",1,"SX","Change your answer from another real title to the right one"],[3,"M",1,"CSX","Lock in slower than any of the other people who got it right"],[3,"E",1,"CS","Type within 5 seconds"],[3,"M",1,"C","Never use a hint but be in top 5"],[3,"M",1,"CSX","Stay in the top 3 for 3 songs in a row"],[3,"H",1,"SX","Surpass 3 players in one song"],[3,"E",0,"CS","Your avatar is unique from others"],[3,"E",1,"CS","Get the first song of the round right"],[3,"M",1,"CSX","Your wrong answer shares a word with the correct title"],[3,"M",1,"CSX","Right franchise, wrong season or movie"],[3,"E",1,"CS","Miss 3 songs in a row"],[4,"E",1,"CS","Everyone gets a song right"],[4,"E",1,"CS","No one gets a song right"],[4,"H",1,"SX","Both players next to you guess it right (if you're on the edge, 1)"],[4,"E",1,"CSX","Someone types an emoji in chat"],[4,"M",1,"CSX","The player in 1st place misses, you get it right"],[4,"M",1,"CSX","A song from only 1 person's list"],[4,"M",1,"CSX","A song from 5 or more people's list"],[4,"H",1,"SX","2 or more people share the same wrong answer"],[4,"M",1,"CSX","Last-place player gets it right"],[4,"M",1,"CSX","Half of the people get it right"],[4,"M",1,"C","Nobody uses a hint"],[4,"M",1,"C","More than 3 people use a hint"],[4,"E",1,"C","Somebody uses Song Info Hint"],[4,"M",1,"CSX","Someone else disconnects"],[0,"E",1,"C","Romance anime"],[0,"H",1,"CX","Mahou Shoujo anime"],[0,"H",1,"CX","Idol anime"],[0,"E",1,"CX","Anime score 8.0 or higher"],[0,"M",1,"CX","Anime score below 6.0"],[0,"H",1,"CX","Obscure anime (popularity rank above 3000)"],[0,"M",1,"C","Top 100 most popular anime"],[0,"H",1,"","Season 3 or later"],[0,"E",1,"C","Same season twice in a row (e.g. two Spring anime)"],[0,"M",1,"C","English and romaji titles are the same"],[1,"E",1,"C","Show has 3 or more insert songs"],[1,"M",1,"X","Song title has 5+ words"],[1,"E",1,"C","Song title has ! or ?"],[1,"H",1,"X","Song title includes the anime's title"],[2,"M",1,"SX","More than 3 artists credited"],[2,"E",1,"CS","Artist name is one word"],[3,"H",1,"SX","Get 5 songs in a row"],[3,"H",1,"X","Answer correctly in under 2 seconds"],[3,"H",1,"S","Answer correctly in under 3 seconds"],[3,"E",1,"CS","Get the last song of the round right"],[3,"M",1,"CX","Be in 1st place after any song"],[4,"M",1,"CX","Exactly 2 people get it right"],[4,"H",1,"SX","Everyone gives the same answer"],[4,"M",1,"SX","Tie for 1st place after song 10"],[4,"E",1,"CS","A song nobody has on their list"],[4,"M",1,"","Someone answers in under 2 seconds"],[0,"E",1,"CS","Same franchise appears twice in a row"],[0,"M",1,"CS","Same year twice in a row"],[1,"M",1,"X","Sample starts in the first 5 seconds of the song"],[3,"M",1,"S","Reach 10 points (no hints)"],[3,"H",1,"SX","Reach 15 points (no hints)"],[3,"M",1,"SX","Unique right answer (a title no other correct player used)"],[3,"H",1,"SX","Flex answer (right with a different show the song also counts for)"],[0,"M",1,"X","Before 2000"],[0,"H",1,"X","Aired this year"],[0,"H",1,"X","Season 4 or later"],[0,"H",1,"X","Anime title is one word of 4 letters or fewer"],[0,"H",1,"X","Title has \"no\" twice (e.g. Boku no Kokoro no Yabai Yatsu)"],[0,"H",1,"X","33 or more tags"],[0,"H",1,"X","Only 1 or 2 tags"],[0,"H",1,"X","Same anime appears 3 times"],[0,"H",1,"X","Same franchise appears 3 times in one round"],[0,"H",1,"X","5 or more Isekai anime in one round"],[1,"H",1,"X","Four of a kind: 4 OPs, EDs, or Inserts in a row"],[1,"H",1,"X","OP/ED number 5 or higher"],[1,"H",1,"X","Song title is one word of 3 letters or fewer"],[1,"H",1,"X","Song title has a number with 3+ digits (e.g. 100, 2024)"],[1,"H",1,"","Two love songs in a row (Love, Ai, Koi, Suki)"],[1,"H",1,"X","Song title twice as long as the anime title"],[1,"H",1,"X","Song title and artist both ALL CAPS"],[1,"H",1,"X","Song difficulty 10% or lower"],[2,"H",1,"X","Artist name has 2 or more different symbols"],[2,"H",1,"X","6 or more artists credited"],[2,"H",1,"X","Same artist twice in a row"],[2,"H",1,"","Parentheses ( ) in the artist name two songs in a row"],[3,"H",1,"X","Get 7 songs in a row"],[3,"M",1,"X","Snipe 3 songs in one round"],[3,"H",1,"X","Get the first 3 songs right"],[3,"H",1,"X","Miss 5 in a row, then get one right"],[3,"H",1,"X","Get 3 solos in one round"],[4,"H",1,"X","Everyone gets 3 songs in a row right"],[4,"H",1,"X","No one gets 2 songs in a row right"],[4,"M",1,"X","Last-place player gets a solo"]];
 /* =====================================================================
  * AMQ Bingo: in-game board (Alt+G) and host panel (Alt+H)
  * Only reads data AMQ shows after each answer is revealed.
  * ===================================================================== */
 
 const PREFIX = "[AMQBingo]";
-const ANNOUNCE_RE = /AMQ Bingo round ([1-5]) · code ([A-Z]{4}) · host (\S+)(?: · tiles ([0-9A-Z]{4}))?(?: \(\w+\))?(?: · rules ([A-Z][0-9]{9}))?(?: · board ([A-Z]{4})(\+)?)?/;
+const ANNOUNCE_RE = /AMQ Bingo round ([1-5]) · code ([A-Z]{4}) · host (\S+)(?: · tiles ([0-9A-Z]{4}))?(?: \(\w+\))?(?: · rules ([A-Z][0-9]{9}))?(?: · board ([A-Z]{4})(\+)?)?(?: · v([0-9.]+))?/;
 // A player's BINGO call in game chat carries their claim code, so the host gets it even when DMs are blocked.
 const BINGO_RE = /^BINGO! (\S+) has \d+ lines? in AMQ Bingo round ([1-5]) · claim ([0-9A-Z]{4}-[0-9A-Z]{4})/;
 const CAT = ["#4f8cff", "#3fbf7f", "#ff9f43", "#b37bff", "#27c2c2"]; // Anime, Song, Artist, Individual, Multiplayer
@@ -474,20 +479,27 @@ async function artistMatches(rec) {
   return wrong.filter((i) => { const a = flat(rec.answers[i]); return names.has(a) && !right.has(a); });
 }
 
-/* ---------------- AnisongDB: "Show has 3 or more insert songs" ---------------- */
-const INSERT_TILE = "Show has 3 or more insert songs";
-RULES[INSERT_TILE] = { g: () => false }; AUTO.add(INSERT_TILE); // marked later, once AnisongDB answers
-const insertCache = {};
-function insertCount(annId) {
+/* ---------------- AnisongDB: tiles AMQ's reveal doesn't carry ---------------- */
+// One lookup per anime (all its songs), cached. Each song row has songType and songCategory
+// ("standard" | "character" | "chanting" | "instrumental" | "other").
+const annCache = {};
+function annRows(annId) {
   if (!annId) return Promise.resolve(null);
-  if (!(annId in insertCache)) {
-    insertCache[annId] = postJSON("https://anisongdb.com/api/annId_request", { annId: Number(annId), ignore_duplicate: false })
-      .then((rows) => (Array.isArray(rows) ? rows : []).filter((x) => /insert/i.test(String(x.songType || ""))).length)
-      .catch((e) => { console.warn("[AMQ Bingo] AnisongDB lookup failed", e); delete insertCache[annId]; return null; });
+  if (!(annId in annCache)) {
+    annCache[annId] = postJSON("https://anisongdb.com/api/annId_request", { annId: Number(annId), ignore_duplicate: false })
+      .then((rows) => (Array.isArray(rows) ? rows : []))
+      .catch((e) => { console.warn("[AMQ Bingo] AnisongDB lookup failed", e); delete annCache[annId]; return null; });
   }
-  return insertCache[annId];
+  return annCache[annId];
 }
-const manyInserts = (rec) => insertCount(rec.s.annId).then((n) => n != null && n >= 3);
+const songCategory = (rec) => annRows(rec.s.annId).then((rows) => { const row = rows && rows.find((x) => Number(x.annSongId) === Number(rec.s.annSongId)); return row ? String(row.songCategory || "").toLowerCase() : null; });
+const INSERT_TILE = "Show has 3 or more insert songs";
+const ASYNC_TILES = {
+  [INSERT_TILE]: (rec) => annRows(rec.s.annId).then((rows) => !!rows && rows.filter((x) => /insert/i.test(String(x.songType || ""))).length >= 3),
+  "Instrumental": (rec) => songCategory(rec).then((c) => c === "instrumental"),
+  "Chanting": (rec) => songCategory(rec).then((c) => c === "chanting"),
+};
+Object.keys(ASYNC_TILES).forEach((t) => { RULES[t] = { g: () => false }; AUTO.add(t); }); // marked later, once AnisongDB answers
 
 /* ---------------- messaging ---------------- */
 // Players AMQ refused to let us message (level-5 rule). Cleared as soon as a message to them goes through.
@@ -837,6 +849,10 @@ setInterval(() => {
   if (el && b && b.speed && !b.speed.end) el.firstChild.textContent = `⏱ ${fmtTime(Date.now() - b.speed.start)} · ${(game.seq || 0) - b.speed.seq0} songs`;
 }, 1000);
 
+// Version check: "0.34" vs "0.33" etc.
+let warnedVersion = false;
+function newerVersion(a, b) { const x = String(a).split(".").map(Number), y = String(b).split(".").map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0; } return false; }
+
 // Last revealed song number: manual marks count for it (one-tile-per-song limit).
 // Songs are keyed by a counter that never resets, since song numbers restart every AMQ game.
 const lastSongN = () => game.seq || 0;
@@ -902,11 +918,13 @@ function playerOnSong(rec) {
     const was = linesOf(b).length; if (!autoMark(b, ai, rec)) { saveP(); renderPlayer(); return; } logAdd({ n: rec.n, hits: [{ text: ARTIST_TILE, col: 2 }] });
     saveP(); renderPlayer(); if (linesOf(b).length > was) { flashUntil = Date.now() + 6000; celebrate(); } queueSync(true);
   });
-  const ii = cells.findIndex((c) => c.text === INSERT_TILE);
-  if (ii >= 0 && !b.marks.includes(ii)) manyInserts(rec).then((yes) => {
-    if (!yes || b.marks.includes(ii) || curBoard() !== b || (SETTINGS.needCorrect && !(me && me.correct))) return;
-    const was = linesOf(b).length; if (!autoMark(b, ii, rec)) { saveP(); renderPlayer(); return; } logAdd({ n: rec.n, hits: [{ text: INSERT_TILE, col: cells[ii].col }] });
-    saveP(); renderPlayer(); if (linesOf(b).length > was) { flashUntil = Date.now() + 6000; celebrate(); } queueSync(true);
+  cells.forEach((c, ii) => {
+    if (c.wild || !ASYNC_TILES[c.text] || b.marks.includes(ii)) return;
+    ASYNC_TILES[c.text](rec).then((yes) => {
+      if (!yes || b.marks.includes(ii) || curBoard() !== b || (SETTINGS.needCorrect && !(me && me.correct))) return;
+      const was = linesOf(b).length; if (!autoMark(b, ii, rec)) { saveP(); renderPlayer(); return; } logAdd({ n: rec.n, hits: [{ text: c.text, col: c.col }] });
+      saveP(); renderPlayer(); if (linesOf(b).length > was) { flashUntil = Date.now() + 6000; celebrate(); } queueSync(true);
+    });
   });
   saveP();
   const after = linesOf(b).length;
@@ -960,7 +978,7 @@ function renderPlayer() {
   sub.textContent = `Round ${P.round} · ${P.code}${b.variant ? " · replacement" : ""}`;
   const cells = cellsNow(), lines = linesOf(b), inLine = new Set(lines.flat());
   speedCheck(b, lines.length);
-  if (Date.now() < flashUntil) body.append(h("div", { class: "amqb-bingo" }, "BINGO!"));
+  if (Date.now() < flashUntil) body.append(h("div", { class: "amqb-bingo" }, "🎉 BINGO! 🎉"));
   const grid = h("div", { class: "amqb-grid" }, COLS.map((c, ci) => h("div", { class: "amqb-ch", style: ci === 4 && SETTINGS.soloMix ? "background:linear-gradient(90deg,#4f8cff,#3fbf7f,#ff9f43,#b37bff)" : `--cat:${CAT[ci]}` }, ci === 4 && SETTINGS.soloMix ? "Mix" : c.name)));
   cells.forEach((c, i) => {
     if (c.wild) {
@@ -1037,9 +1055,9 @@ function renderPlayer() {
         if (H.active && P.host && norm(P.host) === norm(myName())) { const pl = H.players[norm(myName())]; if (pl) (pl.chatCalled = pl.chatCalled || {})[P.round] = lines.length; }
         sendSync();
         if (P.host && norm(P.host) !== norm(myName())) sendDM(P.host, `${PREFIX} B ${P.round} ${P.code} ${claim}`);
-        sendGameChat(`BINGO! ${myName()} has ${lines.length} line${lines.length === 1 ? "" : "s"} in AMQ Bingo round ${P.round} · claim ${claim}`);
+        sendGameChat(`BINGO! ${myName()} has ${lines.length} line${lines.length === 1 ? "" : "s"} in AMQ Bingo round ${P.round} · claim ${claim} 🎉`);
         renderPlayer();
-      } }, (b.called || 0) >= lines.length && lines.length ? "Called ✓" : "BINGO!"),
+      } }, (b.called || 0) >= lines.length && lines.length ? "Called ✓" : "🎉 BINGO!"),
       !SETTINGS.replace ? null : h("button", { class: "amqb-btn", disabled: b.variant === 1 || left > 0, title: "One replacement per round, 3 minutes after you get your board", onclick: () => {
         const k = boardKey(); P.boards[k] = { variant: 1, firstAt: b.firstAt, marks: [], auto: {}, wild: b.wild, wildOn: false, lost: false }; saveP(); renderPlayer(); queueSync(true);
       } }, b.variant === 1 ? "Replacement used" : left > 0 ? `New board in ${Math.ceil(left / 60000)} min` : "Replace board"),
@@ -1074,8 +1092,15 @@ function hostOnSong(rec) {
   H.asks = H.asks || {}; H.asks[r] = {};
   Object.keys(ASK).forEach((t) => { try { if (!(t in H.checks[r]) && ASK[t].g(ctx)) H.asks[r][t] = rec.n; } catch (e) {} });
   artistMatches(rec).then((who) => { who.forEach((id) => { const pl = game.players[id]; if (!pl) return; const k = norm(pl.name), bag = (H.personal[r][k] = H.personal[r][k] || {}); if (!(ARTIST_TILE in bag)) bag[ARTIST_TILE] = rec.n; }); if (who.length) { saveH(); checkBingoEnd(); renderHost(); } });
-  if (!(INSERT_TILE in H.checks[r]) && COLS.some((c) => c.pool.some((t) => t.text === INSERT_TILE)))
-    manyInserts(rec).then((yes) => { if (yes && H.round === r && !(INSERT_TILE in H.checks[r])) { H.checks[r][INSERT_TILE] = rec.n; saveH(); checkBingoEnd(); renderHost(); } });
+  Object.keys(ASYNC_TILES).forEach((t) => {
+    if ((t in H.checks[r] && !SETTINGS.needCorrect) || !COLS.some((c) => c.pool.some((x) => x.text === t))) return;
+    ASYNC_TILES[t](rec).then((yes) => {
+      if (!yes || H.round !== r) return;
+      if (!(t in H.checks[r])) H.checks[r][t] = rec.n;
+      if (SETTINGS.needCorrect) ids(rec).forEach((id) => { const pl = game.players[id]; if (!pl || !rec.res[id].correct) return; const bag = (H.personal[r][norm(pl.name)] = H.personal[r][norm(pl.name)] || {}); if (!(t in bag)) bag[t] = rec.n; });
+      saveH(); checkBingoEnd(); renderHost();
+    });
+  });
   COLS.forEach((col) => col.pool.forEach((t) => {
     const rule = RULES[t.text]; if (!rule) return;
     const need = SETTINGS.needCorrect;
@@ -1189,7 +1214,7 @@ function announceRound(r) {
   const nb = H.game.nextBoard || "new";
   // Marks carry over: so do the host's checks from the round before.
   if (nb === "keep" && r > 1) { const pr = r - 1; ensureRound(pr); H.checks[r] = { ...H.checks[pr], ...H.checks[r] }; Object.entries(H.personal[pr]).forEach(([k, bag]) => { H.personal[r][k] = { ...bag, ...(H.personal[r][k] || {}) }; }); Object.values(H.players).forEach((p) => { if (p.claims && p.claims[pr] && !p.claims[r]) p.claims[r] = p.claims[pr]; if (p.chatCalled && p.chatCalled[pr]) p.chatCalled[r] = p.chatCalled[pr]; }); H.seen = H.seen || {}; H.seen[r] = { ...(H.seen[pr] || {}), ...(H.seen[r] || {}) }; saveH(); }
-  sendGameChat(`AMQ Bingo ${label} · code ${H.codes[r]} · host ${myName()}` + (H.packId ? ` · tiles ${H.packId} (${SET_NAMES[st.set || "S"]})` + (plain ? ` · rules ${encodeRules(st)}` : "") : "") + (nb !== "new" && r > 1 ? ` · board ${H.codes[1]}${nb === "keep" ? "+" : ""}` : ""));
+  sendGameChat(`AMQ Bingo ${label} · code ${H.codes[r]} · host ${myName()}` + (H.packId ? ` · tiles ${H.packId} (${SET_NAMES[st.set || "S"]})` + (plain ? ` · rules ${encodeRules(st)}` : "") : "") + (nb !== "new" && r > 1 ? ` · board ${H.codes[1]}${nb === "keep" ? "+" : ""}` : "") + ` · v${SCRIPT_VERSION}`);
   renderHost();
 }
 
@@ -1229,7 +1254,7 @@ function noticeBingos() {
     const n = sc.lines.length, before = seen[k] || 0;
     if (n > before) {
       const said = p.chatCalled && p.chatCalled[r] >= n;
-      if (H.game.announceBingo !== false && !said) sendGameChat(`AMQ Bingo: ${p.name} has ${n} line${n === 1 ? "" : "s"}` + (sc.confirmed ? ` (${sc.confirmed} confirmed)!` : " (host is checking)!"));
+      if (H.game.announceBingo !== false && !said) sendGameChat(`🎉 AMQ Bingo: ${p.name} has ${n} line${n === 1 ? "" : "s"}` + (sc.confirmed ? ` (${sc.confirmed} confirmed)!` : " (host is checking)!"));
       askToEnd(p.name);
     }
     seen[k] = Math.max(before, n);
@@ -1334,16 +1359,25 @@ function tabPlayers(body, r, code) {
   if (vs) {
     const g = h("div", { class: "amqb-grid" }, COLS.map((c, ci) => h("div", { class: "amqb-ch", style: `--cat:${CAT[ci]}` }, c.name)));
     const inLine = new Set(vs.lines.flatMap((x) => x.l));
+    const k = norm(vp.name);
     vs.cells.forEach((c, i) => {
-      const mine = vs.cl.marks.has(i), yes = vs.ok(i);
-      const cls = "amqb-cell" + (mine ? (yes ? " ok" : " unk") : yes ? " hostonly" : "") + (inLine.has(i) ? " line" : "");
-      g.append(h("div", { class: cls, style: `cursor:default;--cat:${CAT[c.col]}` }, c.wild ? `Wild: ${vs.cl.wild || "none"}` : c.text));
+      const mine = vs.cl.marks.has(i), yes = vs.ok(i), man = !c.wild && !AUTO.has(c.text), d = c.d || (c.hard ? "H" : "M");
+      const cls = "amqb-cell" + (mine ? (yes ? " ok" : " unk") : yes ? " hostonly" : "") + (inLine.has(i) ? " line" : "") + (man ? " man" : "");
+      // Click tiles: the host can confirm (or un-confirm) them for this player by clicking.
+      const toggle = man ? () => { const bag = (H.personal[r][k] = H.personal[r][k] || {}); if (c.text in bag) delete bag[c.text]; else bag[c.text] = "host"; saveH(); checkBingoEnd(); renderHost(); } : null;
+      g.append(h(man ? "button" : "div", { class: cls, style: `cursor:${man ? "pointer" : "default"};--cat:${CAT[c.col]}`, title: man ? (yes ? "Click tile, confirmed. Click to undo." : mine ? "Click tile they marked. Click to confirm it." : "Click tile. They haven't marked it.") : "Tracked automatically", onclick: toggle },
+        c.wild ? `Wild: ${vs.cl.wild || "none"}` : c.text,
+        c.wild ? "" : h("span", { class: "dif d" + d }, d),
+        man ? h("span", { class: "tag" }, yes ? "✋ ✓" : "✋") : ""));
     });
+    const manMarked = vs.cells.map((c, i) => ({ c, i })).filter(({ c, i }) => !c.wild && !AUTO.has(c.text) && vs.cl.marks.has(i));
     const verdicts = vs.lines.map((x) => {
       const miss = x.l.filter((i) => !vs.ok(i)).map((i) => vs.cells[i].wild ? "wild card" : vs.cells[i].text);
       return h("div", {}, `${LINE_NAMES[x.idx]}: `, miss.length ? h("b", { style: "color:#fdba74" }, "check " + miss.join(", ")) : h("b", { style: "color:#5fd39a" }, "confirmed"));
     });
-    body.append(h("b", {}, `${vp.name}'s board`), g, h("div", { class: "amqb-muted" }, "Green: confirmed by tracking. Amber: they marked it, tracking didn't (judgment tiles, hints, wild card). Grey: happened but they didn't mark it."), verdicts);
+    body.append(h("b", {}, `${vp.name}'s board`), g,
+      manMarked.length ? h("div", { class: "amqb-muted" }, "Click tiles they marked: ", manMarked.map(({ c, i }) => h("b", { style: `color:${vs.ok(i) ? "#5fd39a" : "#fdba74"}` }, c.text + (vs.ok(i) ? " ✓" : ""))).reduce((a, x, j) => (j ? [...a, ", ", x] : [x]), [])) : "",
+      h("div", { class: "amqb-muted" }, "Green: confirmed. Amber: they marked it, not confirmed yet. Grey: happened but they didn't mark it. Striped ✋ = click tiles: click one to confirm it for this player."), verdicts);
   }
 }
 
@@ -1517,13 +1551,14 @@ function boot() {
     (p.messages || []).forEach((m) => {
       const text = m.message || "";
       const a = text.match(ANNOUNCE_RE);
+      if (a && a[8] && newerVersion(a[8], SCRIPT_VERSION) && !warnedVersion) { warnedVersion = true; sysMsg(`AMQ Bingo: the host is on v${a[8]} and you have v${SCRIPT_VERSION}. Update so your board matches: open Tampermonkey and "Check for userscript updates", or reinstall from ${INSTALL_URL}`); }
       if (a) { if (!(Number(a[1]) === P.round && a[2] === P.code && (a[4] || "") === (P.packId || ""))) { P.nextBoard = a[6] ? { bcode: a[6], keep: !!a[7] } : null; if (announceSeen(Number(a[1]), a[2], a[3], a[4], a[5])) sysMsg(`AMQ Bingo: joined round ${a[1]}. Press Alt+G to see your board.`); } return; }
       const bc = text.match(BINGO_RE);
       if (bc) { if (m.sender && norm(m.sender) === norm(bc[1])) hostTakeBingo(m.sender, Number(bc[2]), bc[3]); return; }
       // Any other BINGO call (older script, website player typing it, claim that doesn't match): still ask the host.
       if (m.sender && /^\s*bingo\b/i.test(text) && H.active && !H.ended[H.round] && norm(m.sender) !== norm(myName())) { askToEnd(m.sender); return; }
       if (m.sender && hostTakeClaim(m.sender, text)) return;
-      if (/\p{Extended_Pictographic}|:[a-z0-9_+\-]+:/iu.test(text) && !/^BINGO! /.test(text)) game.chat = true;
+      if (/\p{Extended_Pictographic}|:[a-z0-9_+\-]+:/iu.test(text) && !/^(BINGO! |🎉 AMQ Bingo|AMQ Bingo)/u.test(text)) game.chat = true;
     });
   });
   // Someone else leaving or moving to spectator counts; you don't.
